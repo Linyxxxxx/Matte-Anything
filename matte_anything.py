@@ -12,12 +12,12 @@ import groundingdino.datasets.transforms as T
 from groundingdino.util.inference import load_model as dino_load_model, predict as dino_predict, annotate as dino_annotate
 
 models = {
-	'vit_h': './pretrained/sam_vit_h_4b8939.pth',
+	'vit_h': "/mnt/local2T_v2/yinglin/sam_vit_h_4b8939.pth",
     'vit_b': './pretrained/sam_vit_b_01ec64.pth'
 }
 
 vitmatte_models = {
-	'vit_b': './pretrained/ViTMatte_B_DIS.pth',
+	'vit_b': "/mnt/local2T_v2/yinglin/ViTMatte_B_DIS.pth",
 }
 
 vitmatte_config = {
@@ -25,8 +25,8 @@ vitmatte_config = {
 }
 
 grounding_dino = {
-    'config': './GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py',
-    'weight': './pretrained/groundingdino_swint_ogc.pth'
+    'config': '../GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py',
+    'weight': "/mnt/local2T_v2/linyx/image-matting/GroundingDINO/weights/groundingdino_swint_ogc.pth"
 }
 
 def generate_checkerboard_image(height, width, num_squares):
@@ -222,7 +222,12 @@ if __name__ == "__main__":
         
         # generate alpha matte
         torch.cuda.empty_cache()
-        mask = masks[0][0].astype(np.uint8)*255
+        # mask = masks[0][0].astype(np.uint8)*255
+        # use all mask
+        masks_all = masks[0].copy()
+        for ann in masks:
+            masks_all[ann == True] = True
+        mask = masks_all[0].astype(np.uint8)*255
         trimap = generate_trimap(mask, erode_kernel_size, dilate_kernel_size).astype(np.float32)
         trimap[trimap==128] = 0.5
         trimap[trimap==255] = 1
