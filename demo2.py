@@ -143,7 +143,7 @@ def edit_mask(input_x, alpha, edit_type, result):
     
     # foreground_alpha = np.concatenate([original_image/255., np.expand_dims(alpha, axis=2)], axis=2)
 
-    return alpha, foreground_alpha
+    return alpha, foreground_alpha, foreground_alpha
 
 def convert_pixels(gray_image, boxes):
     converted_image = np.copy(gray_image)
@@ -196,7 +196,7 @@ if __name__ == "__main__":
 
         # foreground_alpha = np.concatenate([input_x/255., np.expand_dims(alpha, axis=2)], axis=2)
 
-        return alpha, gr.update(value=foreground_alpha, visible=True)
+        return alpha, gr.update(value=foreground_alpha, visible=True), foreground_alpha
 
     def precise_inference(input_x):
         # input_x = input_x["image"]
@@ -361,7 +361,7 @@ if __name__ == "__main__":
         # return img, mask_all
         trimap[trimap==1] == 0.999
 
-        return alpha, gr.update(value=foreground_alpha, visible=True)
+        return alpha, gr.update(value=foreground_alpha, visible=True), foreground_alpha
 
     with gr.Blocks() as demo:
         with gr.Row().style(equal_height=True):
@@ -379,6 +379,13 @@ if __name__ == "__main__":
 
                 # edit mask
                 with gr.Row():
+                    editor = gr.Image(label='绘制遮罩', tool="sketch",
+                        type='numpy',
+                        # image_mode="RGBA", 
+                        brush_color="#FF9C9A", 
+                        height=400, visible=False
+                    )
+                with gr.Row():
                     with gr.Tab(label='编辑遮罩'):
                         radio = gr.Radio(['add_mask', 'remove_mask'], label='Mask Labels')
                         edit_mask_button = gr.Button("确认")
@@ -390,24 +397,20 @@ if __name__ == "__main__":
                 # with gr.Tab(label='Refined by ViTMatte'):
                 #     result = gr.Image(type='numpy')
                 alpha = gr.State(value="numpy")   # store mask
-                result = gr.Image(label='抠图结果', tool="sketch",
+                result = gr.Image(label='抠图结果',
                     type='numpy',
                     # image_mode="RGBA", 
-                    brush_color="#FF9C9A", 
-                    height=400, visible=False
+                    brush_color="#FF9C9A"
                 )
 
         
-        simple_matte_button.click(simple_inference, inputs=[input_image], outputs=[alpha, result])
-        precise_matte_button.click(precise_inference, inputs=[input_image], outputs=[alpha, result])
+        simple_matte_button.click(simple_inference, inputs=[input_image], outputs=[alpha, editor, result])
+        precise_matte_button.click(precise_inference, inputs=[input_image], outputs=[alpha, editor, result])
 
         edit_mask_button.click(
-            edit_mask, inputs=[input_image, alpha, radio, result], outputs=[alpha, result]
+            edit_mask, inputs=[input_image, alpha, radio, editor], outputs=[alpha, editor, result]
         )
 
-        with gr.Row():
-            with gr.Column():
-                background_image = gr.State(value=None)
 
     PORT = 12358
     demo.launch(server_port=PORT)
