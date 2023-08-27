@@ -125,13 +125,9 @@ def generate_trimap(mask, erode_kernel_size=10, dilate_kernel_size=10):
     return trimap
 
 # gradio
-# once user upload an image, the original image is stored in `original_image`
-def store_img(img):
-    return img  # when new image is uploaded, `selected_points` should be empty
-
-def edit_mask(input_x, alpha, edit_type):
-    original_image = input_x["image"]
-    input_mask = input_x["mask"]
+def edit_mask(input_x, alpha, edit_type, result):
+    original_image = input_x
+    input_mask = result["mask"]
     input_mask = input_mask[:,:,0]
 
     if edit_type == "add_mask":
@@ -141,11 +137,11 @@ def edit_mask(input_x, alpha, edit_type):
 
     # get a green background
     background = generate_checkerboard_image(original_image.shape[0], original_image.shape[1], 8)
-
     # calculate foreground with alpha blending
     foreground_alpha = original_image * np.expand_dims(alpha, axis=2).repeat(3,2)/255 + background * (1 - np.expand_dims(alpha, axis=2).repeat(3,2))/255
-
     foreground_alpha[foreground_alpha>1] = 1
+    
+    # foreground_alpha = np.concatenate([original_image/255., np.expand_dims(alpha, axis=2)], axis=2)
 
     return alpha, foreground_alpha
 
@@ -188,8 +184,22 @@ if __name__ == "__main__":
     ram_model = init_tag2text(tag2text_model)
     # processor, blip_model, lemma = init_blip(blip_model["weight"])
 
-    def run_inference(input_x):
-        input_x = input_x["image"]
+    def simple_inference(input_x):
+        rembg_out = remove(input_x, session=rembg_session, only_mask=True)
+        alpha = rembg_out/255.
+
+        # get a green background
+        background = generate_checkerboard_image(input_x.shape[0], input_x.shape[1], 8)
+        # calculate foreground with alpha blending
+        foreground_alpha = input_x * np.expand_dims(alpha, axis=2).repeat(3,2)/255 + background * (1 - np.expand_dims(alpha, axis=2).repeat(3,2))/255
+        foreground_alpha[foreground_alpha>1] = 1
+
+        # foreground_alpha = np.concatenate([input_x/255., np.expand_dims(alpha, axis=2)], axis=2)
+
+        return alpha, gr.update(value=foreground_alpha, visible=True)
+
+    def precise_inference(input_x):
+        # input_x = input_x["image"]
         
         erode_kernel_size = 10
         dilate_kernel_size = 10
@@ -342,60 +352,62 @@ if __name__ == "__main__":
         
         # get a green background
         background = generate_checkerboard_image(input_x.shape[0], input_x.shape[1], 8)
-
         # calculate foreground with alpha blending
         foreground_alpha = input_x * np.expand_dims(alpha, axis=2).repeat(3,2)/255 + background * (1 - np.expand_dims(alpha, axis=2).repeat(3,2))/255
-
         foreground_alpha[foreground_alpha>1] = 1
+
+        # foreground_alpha = np.concatenate([input_x/255., np.expand_dims(alpha, axis=2)], axis=2)
 
         # return img, mask_all
         trimap[trimap==1] == 0.999
 
-        return alpha, foreground_alpha
+        return alpha, gr.update(value=foreground_alpha, visible=True)
 
     with gr.Blocks() as demo:
-        gr.Markdown(
-            """
-            # <center>Matte Anything🐒 !
-            """
-        )
         with gr.Row().style(equal_height=True):
             with gr.Column():
                 # input image
                 original_image = gr.State(value="numpy")   # store original image without points, default None
-                input_image = gr.Image(label="Input Image", tool="sketch", type="numpy", height=400)              
+                input_image = gr.Image(label="输入图像", type="numpy", height=400)              
                 
                 # run button
-                button = gr.Button("Start!")
+                with gr.Row():
+                    with gr.Tab(label='快速抠图'):
+                        simple_matte_button = gr.Button("开始")
+                    with gr.Tab(label='精修抠图'):
+                        precise_matte_button = gr.Button("开始")
 
                 # edit mask
-                with gr.Tab(label='Edit Mask'):
-                    radio = gr.Radio(['add_mask', 'remove_mask'], label='Mask Labels')
-                    edit_mask_button = gr.Button("Finish!")
+                with gr.Row():
+                    with gr.Tab(label='编辑遮罩'):
+                        radio = gr.Radio(['add_mask', 'remove_mask'], label='Mask Labels')
+                        edit_mask_button = gr.Button("确认")
                 
             
             with gr.Column():
                 # with gr.Tab(label='Alpha Matte'):
                 #     alpha = gr.Image(type='numpy')
                 # with gr.Tab(label='Refined by ViTMatte'):
-                #     refined_by_vitmatte = gr.Image(type='numpy')
+                #     result = gr.Image(type='numpy')
                 alpha = gr.State(value="numpy")   # store mask
-                refined_by_vitmatte = gr.Image(label='Result', type='numpy')
+                result = gr.Image(label='抠图结果', tool="sketch",
+                    type='numpy',
+                    # image_mode="RGBA", 
+                    brush_color="#FF9C9A", 
+                    height=400, visible=False
+                )
 
-        # input_image.upload(
-        #     store_img,
-        #     [input_image],
-        #     [original_image]
-        # )
         
-        button.click(run_inference, inputs=[input_image], outputs=[alpha, refined_by_vitmatte])
+        simple_matte_button.click(simple_inference, inputs=[input_image], outputs=[alpha, result])
+        precise_matte_button.click(precise_inference, inputs=[input_image], outputs=[alpha, result])
 
         edit_mask_button.click(
-            edit_mask, inputs=[input_image, alpha, radio], outputs=[alpha, refined_by_vitmatte]
+            edit_mask, inputs=[input_image, alpha, radio, result], outputs=[alpha, result]
         )
 
         with gr.Row():
             with gr.Column():
                 background_image = gr.State(value=None)
 
-    demo.launch()
+    PORT = 12358
+    demo.launch(server_port=PORT)
