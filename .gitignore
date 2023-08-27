@@ -150,3 +150,5 @@ cluster.sh
 # GroundingDINO
 GroundingDINO/
 testcode/
+
+*.npy

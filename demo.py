@@ -24,6 +24,10 @@ sys.path.append('../Grounded-Segment-Anything/Tag2Text')
 from Tag2Text.models import tag2text
 from Tag2Text import inference_ram
 
+# # BLIP
+# import nltk
+# from transformers import BlipProcessor, BlipForConditionalGeneration
+
 models = {
 	'vit_h': "/mnt/local2T_v2/yinglin/sam_vit_h_4b8939.pth",
     'vit_b': './pretrained/sam_vit_b_01ec64.pth'
@@ -43,7 +47,11 @@ grounding_dino = {
 }
 
 tag2text_models = {
-    'ram': "/mnt/local2T_v2/yinglin/ram_swin_large_14m.pth"
+    'ram': "/mnt/local2T_v2/yinglin/ram_swin_large_14m.pth",
+}
+
+blip_model = {
+    'weight': "/mnt/local2T_v2/linyx/image-matting/blip-image-captioning-large",
 }
 
 def generate_checkerboard_image(height, width, num_squares):
@@ -97,6 +105,15 @@ def init_tag2text(model_type):
     ram_model = ram_model.to(device)
     return ram_model
 
+def init_blip(model_weight):
+    processor = BlipProcessor.from_pretrained(model_weight)
+    blip_model = BlipForConditionalGeneration.from_pretrained(model_weight, torch_dtype=torch.float16).to(device)
+
+    lemma = nltk.wordnet.WordNetLemmatizer()
+    nltk.download(['punkt', 'averaged_perceptron_tagger', 'wordnet'])
+
+    return processor, blip_model, lemma
+
 def generate_trimap(mask, erode_kernel_size=10, dilate_kernel_size=10):
     erode_kernel = np.ones((erode_kernel_size, erode_kernel_size), np.uint8)
     dilate_kernel = np.ones((dilate_kernel_size, dilate_kernel_size), np.uint8)
@@ -134,13 +151,21 @@ if __name__ == "__main__":
     colors = [(255, 0, 0), (0, 255, 0)]
     markers = [1, 5]
 
+    tag_stopwords = [
+        "ground", "floor", "background", "blank", "backdrop",
+        "spring", "summer", "autumn", "fall", "winter", 
+        "snow", "rock", "rocks", "tree", "trees", 
+        "pair", "color",
+    ]
+
     print('Initializing models... Please wait...')
 
     predictor = init_segment_anything(sam_model)
     vitmatte = init_vitmatte(vitmatte_model)
     grounding_dino = dino_load_model(grounding_dino['config'], grounding_dino['weight'])
-    ram_model = init_tag2text(tag2text_model)
     rembg_session = new_session("isnet-general-use")
+    ram_model = init_tag2text(tag2text_model)
+    # processor, blip_model, lemma = init_blip(blip_model["weight"])
 
     def run_inference(input_x, erode_kernel_size, dilate_kernel_size, fg_box_threshold, fg_text_threshold, tr_box_threshold, tr_text_threshold, tr_caption = "glass, lens, crystal, diamond, bubble, bulb, web, grid"):
         
@@ -150,6 +175,7 @@ if __name__ == "__main__":
         rembg_out = rembg_out.convert("RGB")  # remove alpha channel
 
         # auto generate prompt
+        # ram
         normalize = TS.Normalize(
             mean=[0.485, 0.456, 0.406],
             std=[0.229, 0.224, 0.225]
@@ -161,13 +187,36 @@ if __name__ == "__main__":
                 normalize
             ]
         )
-        # image_pillow = Image.fromarray(rembg_out)  # rgb
         image_pillow = rembg_out.resize((384, 384))
         image_pillow = transform(image_pillow).unsqueeze(0).to(device)
 
         res = inference_ram.inference(image_pillow , ram_model)
         fg_caption = res[0].replace(" | ", ". ")
-        print("TAG", fg_caption)
+        tags_list = res[0].split(" | ")
+        new_tags_list = []
+        for tag in tags_list:
+            if tag not in tag_stopwords:
+                new_tags_list.append(tag)
+        fg_caption = '. '.join(new_tags_list)
+        print("TAG:", fg_caption)
+
+        # # blip
+        # blip_inputs = processor(rembg_out, return_tensors="pt").to(device, torch.float16)
+        # blip_out = blip_model.generate(**blip_inputs)
+        # caption = processor.decode(blip_out[0], skip_special_tokens=True)
+        # print("CAPTION:", caption)
+
+        # tags_list = [word for (word, pos) in nltk.pos_tag(nltk.word_tokenize(caption)) if pos[0] == 'N']
+        # tags_lemma = [lemma.lemmatize(w) for w in tags_list]
+        # # fg_caption = '. '.join(map(str, tags_lemma))
+        # # remove stopwords
+        # tags_list = list(map(str, tags_lemma))
+        # new_tags_list = []
+        # for tag in tags_list:
+        #     if tag not in tag_stopwords:
+        #         new_tags_list.append(tag)
+        # fg_caption = '. '.join(new_tags_list)
+        # print("TAG:", fg_caption)
 
         # dino
         predictor.set_image(input_x)
