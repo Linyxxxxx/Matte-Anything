@@ -130,9 +130,9 @@ def edit_mask(input_x, alpha, edit_type, result):
     input_mask = result["mask"]
     input_mask = input_mask[:,:,0]
 
-    if edit_type == "add_mask":
+    if edit_type == "添加遮罩":
         alpha[input_mask == 255] = 1.0
-    elif edit_type == "remove_mask":
+    elif edit_type == "添加遮罩":
         alpha[input_mask == 255] = 0.0
 
     # get a green background
@@ -141,9 +141,10 @@ def edit_mask(input_x, alpha, edit_type, result):
     foreground_alpha = original_image * np.expand_dims(alpha, axis=2).repeat(3,2)/255 + background * (1 - np.expand_dims(alpha, axis=2).repeat(3,2))/255
     foreground_alpha[foreground_alpha>1] = 1
     
-    # foreground_alpha = np.concatenate([original_image/255., np.expand_dims(alpha, axis=2)], axis=2)
+    # genarate rgba image as output
+    foreground_rgba = np.concatenate([original_image/255., np.expand_dims(alpha, axis=2)], axis=2)
 
-    return alpha, foreground_alpha, foreground_alpha
+    return alpha, foreground_alpha, foreground_rgba
 
 def convert_pixels(gray_image, boxes):
     converted_image = np.copy(gray_image)
@@ -194,9 +195,10 @@ if __name__ == "__main__":
         foreground_alpha = input_x * np.expand_dims(alpha, axis=2).repeat(3,2)/255 + background * (1 - np.expand_dims(alpha, axis=2).repeat(3,2))/255
         foreground_alpha[foreground_alpha>1] = 1
 
-        # foreground_alpha = np.concatenate([input_x/255., np.expand_dims(alpha, axis=2)], axis=2)
+        # genarate rgba image as output
+        foreground_rgba = np.concatenate([input_x/255., np.expand_dims(alpha, axis=2)], axis=2)
 
-        return alpha, gr.update(value=foreground_alpha, visible=True), foreground_alpha
+        return alpha, gr.update(value=foreground_alpha, visible=True), foreground_rgba
 
     def precise_inference(input_x):
         # input_x = input_x["image"]
@@ -356,12 +358,13 @@ if __name__ == "__main__":
         foreground_alpha = input_x * np.expand_dims(alpha, axis=2).repeat(3,2)/255 + background * (1 - np.expand_dims(alpha, axis=2).repeat(3,2))/255
         foreground_alpha[foreground_alpha>1] = 1
 
-        # foreground_alpha = np.concatenate([input_x/255., np.expand_dims(alpha, axis=2)], axis=2)
+        # genarate rgba image as output
+        foreground_rgba = np.concatenate([input_x/255., np.expand_dims(alpha, axis=2)], axis=2)
 
         # return img, mask_all
         trimap[trimap==1] == 0.999
 
-        return alpha, gr.update(value=foreground_alpha, visible=True), foreground_alpha
+        return alpha, gr.update(value=foreground_alpha, visible=True), foreground_rgba
 
     with gr.Blocks() as demo:
         with gr.Row().style(equal_height=True):
@@ -387,7 +390,7 @@ if __name__ == "__main__":
                     )
                 with gr.Row():
                     with gr.Tab(label='编辑遮罩'):
-                        radio = gr.Radio(['add_mask', 'remove_mask'], label='Mask Labels')
+                        radio = gr.Radio(['添加遮罩', '去除遮罩'], label='遮罩类型')
                         edit_mask_button = gr.Button("确认")
                 
             
@@ -399,7 +402,7 @@ if __name__ == "__main__":
                 alpha = gr.State(value="numpy")   # store mask
                 result = gr.Image(label='抠图结果',
                     type='numpy',
-                    # image_mode="RGBA", 
+                    image_mode="RGBA", 
                     brush_color="#FF9C9A"
                 )
 
