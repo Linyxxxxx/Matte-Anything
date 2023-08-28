@@ -200,7 +200,7 @@ if __name__ == "__main__":
 
         return alpha, gr.update(value=foreground_alpha, visible=True), foreground_rgba
 
-    def precise_inference(input_x):
+    def precise_inference(input_x, prompt):
         # input_x = input_x["image"]
         
         erode_kernel_size = 10
@@ -211,54 +211,56 @@ if __name__ == "__main__":
         tr_box_threshold = 0.5
         tr_text_threshold = 0.25
 
-        # rembg
-        image_pillow_raw = Image.fromarray(input_x)  # rgb
-        rembg_out = remove(image_pillow_raw, session=rembg_session)
-        rembg_out = rembg_out.convert("RGB")  # remove alpha channel
+        if prompt is not None and prompt != "":   # tags setting by user
+            fg_caption = prompt
+        else:   # use rembg+ram/blip to generate tags
+            # rembg
+            image_pillow_raw = Image.fromarray(input_x)  # rgb
+            rembg_out = remove(image_pillow_raw, session=rembg_session)
+            rembg_out = rembg_out.convert("RGB")  # remove alpha channel
 
-        # auto generate prompt
-        # ram
-        normalize = TS.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
-        transform = TS.Compose(
-            [
-                TS.Resize((384, 384)),
-                TS.ToTensor(), 
-                normalize
-            ]
-        )
-        image_pillow = rembg_out.resize((384, 384))
-        image_pillow = transform(image_pillow).unsqueeze(0).to(device)
+            # auto generate prompt
+            # ram
+            normalize = TS.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+            transform = TS.Compose(
+                [
+                    TS.Resize((384, 384)),
+                    TS.ToTensor(), 
+                    normalize
+                ]
+            )
+            image_pillow = rembg_out.resize((384, 384))
+            image_pillow = transform(image_pillow).unsqueeze(0).to(device)
 
-        res = inference_ram.inference(image_pillow , ram_model)
-        fg_caption = res[0].replace(" | ", ". ")
-        tags_list = res[0].split(" | ")
-        new_tags_list = []
-        for tag in tags_list:
-            if tag not in tag_stopwords:
-                new_tags_list.append(tag)
-        fg_caption = '. '.join(new_tags_list)
+            res = inference_ram.inference(image_pillow , ram_model)
+            fg_caption = res[0].replace(" | ", ". ")
+            tags_list = res[0].split(" | ")
+            new_tags_list = []
+            for tag in tags_list:
+                if tag not in tag_stopwords:
+                    new_tags_list.append(tag)
+            fg_caption = '. '.join(new_tags_list)
+
+            # # blip
+            # blip_inputs = processor(rembg_out, return_tensors="pt").to(device, torch.float16)
+            # blip_out = blip_model.generate(**blip_inputs)
+            # caption = processor.decode(blip_out[0], skip_special_tokens=True)
+            # print("CAPTION:", caption)
+
+            # tags_list = [word for (word, pos) in nltk.pos_tag(nltk.word_tokenize(caption)) if pos[0] == 'N']
+            # tags_lemma = [lemma.lemmatize(w) for w in tags_list]
+            # # fg_caption = '. '.join(map(str, tags_lemma))
+            # # remove stopwords
+            # tags_list = list(map(str, tags_lemma))
+            # new_tags_list = []
+            # for tag in tags_list:
+            #     if tag not in tag_stopwords:
+            #         new_tags_list.append(tag)
+            # fg_caption = '. '.join(new_tags_list)
         print("TAG:", fg_caption)
-
-        # # blip
-        # blip_inputs = processor(rembg_out, return_tensors="pt").to(device, torch.float16)
-        # blip_out = blip_model.generate(**blip_inputs)
-        # caption = processor.decode(blip_out[0], skip_special_tokens=True)
-        # print("CAPTION:", caption)
-
-        # tags_list = [word for (word, pos) in nltk.pos_tag(nltk.word_tokenize(caption)) if pos[0] == 'N']
-        # tags_lemma = [lemma.lemmatize(w) for w in tags_list]
-        # # fg_caption = '. '.join(map(str, tags_lemma))
-        # # remove stopwords
-        # tags_list = list(map(str, tags_lemma))
-        # new_tags_list = []
-        # for tag in tags_list:
-        #     if tag not in tag_stopwords:
-        #         new_tags_list.append(tag)
-        # fg_caption = '. '.join(new_tags_list)
-        # print("TAG:", fg_caption)
 
         # dino
         predictor.set_image(input_x)
@@ -364,7 +366,7 @@ if __name__ == "__main__":
         # return img, mask_all
         trimap[trimap==1] == 0.999
 
-        return alpha, gr.update(value=foreground_alpha, visible=True), foreground_rgba
+        return alpha, gr.update(value=foreground_alpha, visible=True), foreground_rgba, fg_caption
 
     with gr.Blocks() as demo:
         with gr.Row().style(equal_height=True):
@@ -378,6 +380,7 @@ if __name__ == "__main__":
                     with gr.Tab(label='快速抠图'):
                         simple_matte_button = gr.Button("开始")
                     with gr.Tab(label='精修抠图'):
+                        prompt = gr.inputs.Textbox(lines=1, default="", label="自定义标签（可选）", placeholder="默认为程序自动生成")
                         precise_matte_button = gr.Button("开始")
 
                 # edit mask
@@ -408,7 +411,7 @@ if __name__ == "__main__":
 
         
         simple_matte_button.click(simple_inference, inputs=[input_image], outputs=[alpha, editor, result])
-        precise_matte_button.click(precise_inference, inputs=[input_image], outputs=[alpha, editor, result])
+        precise_matte_button.click(precise_inference, inputs=[input_image, prompt], outputs=[alpha, editor, result, prompt])
 
         edit_mask_button.click(
             edit_mask, inputs=[input_image, alpha, radio, editor], outputs=[alpha, editor, result]
