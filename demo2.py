@@ -125,6 +125,36 @@ def generate_trimap(mask, erode_kernel_size=10, dilate_kernel_size=10):
     return trimap
 
 # gradio
+def store_img(img, max_img_size=1080):
+    w, h, c = img.shape
+    new_w = w
+    new_h = h
+    if w > max_img_size:
+        new_w = max_img_size
+        new_h = int(h / w * new_w)
+    if h > max_img_size:
+        new_h = max_img_size
+        new_w = int(w / h * new_h)
+
+    img = cv2.resize(
+        img, (
+            new_h,
+            new_w,
+        ), interpolation=cv2.INTER_LANCZOS4)
+    
+    print(img.shape)
+    return (
+        img, "", # when new image is uploaded, `promot` should be empty
+        gr.update(value="开始", interactive=True),
+        gr.update(value="开始", interactive=True),
+    )
+
+def clear_img(img):
+    return (
+        gr.update(value="图像尚未上传，请稍候", interactive=False),
+        gr.update(value="图像尚未上传，请稍候", interactive=False),
+    )
+
 def edit_mask(input_x, alpha, edit_type, result):
     original_image = input_x
     input_mask = result["mask"]
@@ -132,7 +162,7 @@ def edit_mask(input_x, alpha, edit_type, result):
 
     if edit_type == "添加遮罩":
         alpha[input_mask == 255] = 1.0
-    elif edit_type == "添加遮罩":
+    elif edit_type == "去除遮罩":
         alpha[input_mask == 255] = 0.0
 
     # get a green background
@@ -198,7 +228,12 @@ if __name__ == "__main__":
         # genarate rgba image as output
         foreground_rgba = np.concatenate([input_x/255., np.expand_dims(alpha, axis=2)], axis=2)
 
-        return alpha, gr.update(value=foreground_alpha, visible=True), foreground_rgba
+        return (
+            alpha, 
+            foreground_alpha,
+            gr.update(visible=True), 
+            foreground_rgba,
+        )
 
     def precise_inference(input_x, prompt):
         # input_x = input_x["image"]
@@ -366,10 +401,21 @@ if __name__ == "__main__":
         # return img, mask_all
         trimap[trimap==1] == 0.999
 
-        return alpha, gr.update(value=foreground_alpha, visible=True), foreground_rgba, fg_caption
+        return (
+            alpha, 
+            foreground_alpha,
+            gr.update(visible=True), 
+            foreground_rgba, 
+            fg_caption
+        )
 
     with gr.Blocks() as demo:
-        with gr.Row().style(equal_height=True):
+        gr.Markdown(
+            """
+            # <center>AI智能抠图
+            """
+        )
+        with gr.Row().style(equal_height=True): 
             with gr.Column():
                 # input image
                 original_image = gr.State(value="numpy")   # store original image without points, default None
@@ -378,24 +424,22 @@ if __name__ == "__main__":
                 # run button
                 with gr.Row():
                     with gr.Tab(label='快速抠图'):
-                        simple_matte_button = gr.Button("开始")
-                    with gr.Tab(label='精修抠图'):
-                        prompt = gr.inputs.Textbox(lines=1, default="", label="自定义标签（可选）", placeholder="默认为程序自动生成")
-                        precise_matte_button = gr.Button("开始")
+                        simple_matte_button = gr.Button("图像尚未上传，请稍候", interactive=False)
+                    with gr.Tab(label='复杂场景语义抠图'):
+                        prompt = gr.inputs.Textbox(lines=1, default="", label="提示词（可选）", placeholder="默认由程序自动生成")
+                        precise_matte_button = gr.Button("图像尚未上传，请稍候", interactive=False)
 
                 # edit mask
-                with gr.Row():
-                    editor = gr.Image(label='绘制遮罩', tool="sketch",
-                        type='numpy',
-                        # image_mode="RGBA", 
-                        brush_color="#FF9C9A", 
-                        height=400, visible=False
-                    )
-                with gr.Row():
+                with gr.Row(visible=False) as mask_row:
                     with gr.Tab(label='编辑遮罩'):
+                        editor = gr.Image(label='绘制遮罩', tool="sketch",
+                            type='numpy',
+                            brush_color="#FF9C9A", 
+                            # visible=False,
+                        )
                         radio = gr.Radio(['添加遮罩', '去除遮罩'], label='遮罩类型')
                         edit_mask_button = gr.Button("确认")
-                
+                                  
             
             with gr.Column():
                 # with gr.Tab(label='Alpha Matte'):
@@ -409,14 +453,33 @@ if __name__ == "__main__":
                     brush_color="#FF9C9A"
                 )
 
+        with gr.Row():
+            gr.Markdown(
+                """
+                <center> <当前示例服务器同时运行多个程序，同时网络环境不稳定，处理速度不代表实际最终应用速度>
+                """
+            )
+
+        input_image.upload(
+            store_img,
+            [input_image],
+            [original_image, prompt, simple_matte_button, precise_matte_button]
+        )
+
+        input_image.clear(
+            clear_img,
+            [input_image],
+            [simple_matte_button, precise_matte_button]
+        )
         
-        simple_matte_button.click(simple_inference, inputs=[input_image], outputs=[alpha, editor, result])
-        precise_matte_button.click(precise_inference, inputs=[input_image, prompt], outputs=[alpha, editor, result, prompt])
+        simple_matte_button.click(simple_inference, inputs=[original_image], outputs=[alpha, editor, mask_row, result])
+        precise_matte_button.click(precise_inference, inputs=[original_image, prompt], outputs=[alpha, editor, mask_row, result, prompt])
 
         edit_mask_button.click(
-            edit_mask, inputs=[input_image, alpha, radio, editor], outputs=[alpha, editor, result]
+            edit_mask, inputs=[original_image, alpha, radio, editor], outputs=[alpha, editor, result]
         )
 
 
     PORT = 12358
-    demo.launch(server_port=PORT)
+    # demo.launch(server_port=PORT)
+    demo.launch(server_port=PORT, share=True)
