@@ -125,7 +125,7 @@ def generate_trimap(mask, erode_kernel_size=10, dilate_kernel_size=10):
     return trimap
 
 # gradio
-def store_img(img, max_img_size=1080):
+def store_img(img, max_img_size=720):
     w, h, c = img.shape
     new_w = w
     new_h = h
